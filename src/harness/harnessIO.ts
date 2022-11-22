@@ -785,6 +785,86 @@ export namespace Compiler {
             return result || null; // eslint-disable-line no-null/no-null
         }
 
+        function readjustReturnPosi(typeLine: string, flag: string): string {
+            const arr = typeLine.split("\r\n");
+            const len = arr.length;
+            for (let i = 0; i < len;) {
+                let j = 1;
+                const tmp = arr[i];
+                if(arr[i].indexOf("return") !== -1) {
+                    while((i + j) < len) {
+                        if(arr[i + j].startsWith(flag) === false) {
+                            break;
+                        }
+                        arr[i + j - 1] = arr[i + j];
+                        j = j + 1;
+                    }
+                }
+                arr[i + j - 1] = tmp;
+                i = i + j;
+            }
+
+            typeLine = arr.slice(0, len).join("\r\n") + "\r\n";
+            return typeLine;
+        }
+
+        // function insertBeforeReturn(str: string): string { //在不是独立的return语句前面插入\r\n，例如static fn() { return this; }
+        //     if (str.trimStart().startsWith("return")) {
+        //         return str;
+        //     }
+
+        //     let arr: number[] = [];
+        //     let begin = 0;
+        //     while(str.indexOf("return", begin) !== -1) {
+        //         const poi = str.indexOf("return", begin);
+        //         arr.push(poi);
+        //         begin = poi + 1;
+        //     }
+        //     arr = arr.reverse();
+        //     for(const index of arr) {
+        //         str = str.slice(0, index) + "\r\n" + str.slice(index, str.length);
+        //     }
+        //     return str;
+        // }
+
+        function insertBeforeReturn(str: string): string { //在不是独立的return语句前面插入\r\n，例如static fn() { return this; }
+            if (str.trimStart().startsWith("return") || str.trimStart().startsWith("//")) {
+                return str;
+            }
+
+            const index = str.indexOf("return");
+            if (index !== -1) {
+                str = str.slice(0, index) + "\r\n" + str.slice(index, str.length);
+            }
+            return str;
+        }
+
+        function transToArkAssert(typeString: string): string {
+            if (typeString.indexOf("=>") > -1) {
+                return "function";
+            }
+            if (typeString.startsWith("\"") && typeString.endsWith("\"")) {
+                return "string";
+            }
+            if (typeString.endsWith("[]")) {
+                return "array";
+            }
+            if (typeString === "true" || typeString === "false") {
+                return "boolean";
+            }
+            if (typeString.indexOf(" | ") > -1) {
+                return "union";
+            }
+            const regs=/^[-\+]?\d+\.(\d+)?$/;  //匹配浮点型  //匹配浮点型
+            if (regs.test(typeString)) {
+                return "double";
+            }
+            if (!isNaN(Number(typeString.toString()))) {
+                return "number";
+            }
+            return typeString;
+        }
+
         function *iterateBaseLine(isSymbolBaseline: boolean, skipBaseline?: boolean): IterableIterator<[string, string]> {
             if (skipBaseline) {
                 return;
@@ -793,7 +873,7 @@ export namespace Compiler {
 
             for (const file of allFiles) {
                 const { unitName } = file;
-                let typeLines = "=== " + unitName + " ===\r\n";
+                let typeLines = "// === " + unitName + " ===\r\ndeclare function AssertType(value:any, type:string):void;\r\n";
                 const codeLines = ts.flatMap(file.content.split(/\r?\n/g), e => e.split(/[\r\u2028\u2029]/g));
                 const gen: IterableIterator<TypeWriterResult> = isSymbolBaseline ? fullWalker.getSymbols(unitName) : fullWalker.getTypes(unitName);
                 let lastIndexWritten: number | undefined;
@@ -802,18 +882,48 @@ export namespace Compiler {
                         return;
                     }
                     if (lastIndexWritten === undefined) {
+                        if (isSymbolBaseline === false) {
+                            // str = insertBeforeReturn(str); // 注释里面可能有return，不要在注释里面插入\r\n
+                            for (let i = 0; i < result.line + 1; i++) {
+                                codeLines[i] = insertBeforeReturn(codeLines[i]);
+                            }
+                        }
                         typeLines += codeLines.slice(0, result.line + 1).join("\r\n") + "\r\n";
                     }
                     else if (result.line !== lastIndexWritten) {
                         if (!((lastIndexWritten + 1 < codeLines.length) && (codeLines[lastIndexWritten + 1].match(/^\s*[{|}]\s*$/) || codeLines[lastIndexWritten + 1].trim() === ""))) {
                             typeLines += "\r\n";
                         }
+                        if (isSymbolBaseline === false) {
+                            for (let i = lastIndexWritten + 1; i < result.line + 1; i++) {
+                                codeLines[i] = insertBeforeReturn(codeLines[i]);
+                            }
+                        }
                         typeLines += codeLines.slice(lastIndexWritten + 1, result.line + 1).join("\r\n") + "\r\n";
                     }
                     lastIndexWritten = result.line;
-                    const typeOrSymbolString = isSymbolBaseline ? result.symbol : result.type;
-                    const formattedLine = result.sourceText.replace(/\r?\n/g, "") + " : " + typeOrSymbolString;
-                    typeLines += ">" + formattedLine + "\r\n";
+                    let typeOrSymbolString = isSymbolBaseline ? result.symbol : result.type;
+
+                    let formattedLine = "";
+
+                    typeOrSymbolString = transToArkAssert(typeOrSymbolString); // 转换成ark的判断
+
+                    if (typeOrSymbolString.startsWith("\"") && typeOrSymbolString.endsWith("\"")) {
+                        typeOrSymbolString = typeOrSymbolString.substring(1, typeOrSymbolString.length - 1);
+                    }
+                    typeOrSymbolString = typeOrSymbolString.replaceAll("\"", "\\\"");
+                    formattedLine = result.sourceText.replace(/\r?\n/g, "") + ", " + "\"" + typeOrSymbolString + "\"";
+
+                    if (isSymbolBaseline === false && typeLines.endsWith("}\r\n")) {
+                        typeLines = typeLines.substring(0, typeLines.length - 3) + "\r\n";
+                        typeLines += "AssertType(" + formattedLine + ");\r\n" + "}\r\n";
+                    }
+                    else if (isSymbolBaseline === false) {
+                        typeLines += "AssertType(" + formattedLine + ");\r\n";
+                    }
+                    else {
+                        typeLines += ">" + formattedLine + "\r\n";
+                    }
                 }
 
                 lastIndexWritten ??= -1;
@@ -824,6 +934,9 @@ export namespace Compiler {
                     typeLines += codeLines.slice(lastIndexWritten + 1).join("\r\n");
                 }
                 typeLines += "\r\n";
+                if (isSymbolBaseline === false) {
+                    typeLines = readjustReturnPosi(typeLines, "AssertType");
+                }
                 yield [checkDuplicatedFileName(unitName, dupeCase), Utils.removeTestPathPrefixes(typeLines)];
             }
         }

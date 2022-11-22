@@ -460,7 +460,7 @@ export function flatten<T>(array: T[][] | readonly (T | readonly T[] | undefined
  *
  * @internal
  */
-export function flatMap<T, U>(array: readonly T[] | undefined, mapfn: (x: T, i: number) => U | readonly U[] | undefined): readonly U[] {
+export function flatMap<T, U>(array: readonly T[] | undefined, mapfn: (x: T, i: number) => U | readonly U[] | undefined): U[] {
     let result: U[] | undefined;
     if (array) {
         for (let i = 0; i < array.length; i++) {
