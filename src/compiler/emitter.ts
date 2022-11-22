@@ -2160,13 +2160,13 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     function emitParameter(node: ParameterDeclaration) {
         emitDecoratorsAndModifiers(node, node.modifiers);
         emit(node.dotDotDotToken);
-        emitNodeWithWriter(node.name, writeParameter);
+        //emitNodeWithWriter(node.name, writeParameter);
         emit(node.questionToken);
         if (node.parent && node.parent.kind === SyntaxKind.JSDocFunctionType && !node.name) {
             emit(node.type);
         }
         else {
-            emitTypeAnnotation(node.type);
+            emitTypeAnnotationWithOut(node.type);
         }
         // The comment position has to fallback to any present node within the parameterdeclaration because as it turns out, the parser can make parameter declarations with _just_ an initializer.
         emitInitializer(node.initializer, node.type ? node.type.end : node.questionToken ? node.questionToken.end : node.name ? node.name.end : node.modifiers ? node.modifiers.end : node.pos, node, parenthesizer.parenthesizeExpressionForDisallowedComma);
@@ -2392,7 +2392,9 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitUnionType(node: UnionTypeNode) {
-        emitList(node, node.types, ListFormat.UnionTypeConstituents, parenthesizer.parenthesizeConstituentTypeOfUnionType);
+        console.log(node.kind);
+        writeKeyword("union");
+        //emitList(node, node.types, ListFormat.UnionTypeConstituents, parenthesizer.parenthesizeConstituentTypeOfUnionType);
     }
 
     function emitIntersectionType(node: IntersectionTypeNode) {
@@ -4371,6 +4373,14 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         }
     }
 
+    function emitTypeAnnotationWithOut(node: TypeNode | undefined) {
+        if (node) {
+            // writePunctuation(":");
+            // writeSpace();
+            emit(node);
+        }
+    }
+
     function emitInitializer(node: Expression | undefined, equalCommentStartPos: number, container: Node, parenthesizerRule?: (node: Expression) => Expression) {
         if (node) {
             writeSpace();
@@ -4715,9 +4725,9 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         writer.writeOperator(s);
     }
 
-    function writeParameter(s: string) {
-        writer.writeParameter(s);
-    }
+    // function writeParameter(s: string) {
+    //     writer.writeParameter(s);
+    // }
 
     function writeComment(s: string) {
         writer.writeComment(s);

@@ -66,12 +66,66 @@ export class TypeWriterWalker {
         }
     }
 
+    private isInBlock(node: ts.Node, isSymbolWalk: boolean): boolean {
+        if (node.kind === ts.SyntaxKind.SourceFile) {
+            return false;
+        }
+
+        if (node.kind === ts.SyntaxKind.Identifier && node.parent.kind === ts.SyntaxKind.PropertyAccessExpression) {
+            return false;
+        }
+
+        if (node.kind === ts.SyntaxKind.ClassDeclaration) {  // { class { name : number } } 处理这类异常
+            return false;
+        }
+
+        if (node.kind === ts.SyntaxKind.Identifier && node.getText() === "new") {
+            return false;
+        }
+
+        if (node.kind === ts.SyntaxKind.Block) {
+            return true;
+        }
+        return this.isInBlock(node.parent, isSymbolWalk);
+    }
+
+    private isExpressionSourceFile(node: ts.Node): boolean {
+        while(node.kind !== ts.SyntaxKind.SourceFile) {
+            if ((node.kind === ts.SyntaxKind.ExpressionStatement || node.kind === ts.SyntaxKind.VariableStatement) && node.parent.kind === ts.SyntaxKind.SourceFile) {
+                return true;
+            }
+            if (node.parent.kind === ts.SyntaxKind.PropertyAccessExpression) {
+                return false;
+            }
+
+            if (node.kind === ts.SyntaxKind.Identifier && (node.parent.kind === ts.SyntaxKind.ClassDeclaration || node.parent.parent.kind === ts.SyntaxKind.HeritageClause)) {
+                return false;
+            }
+
+            if (node.kind === ts.SyntaxKind.Identifier && node.getText() === "new") {
+                return false;
+            }
+
+            node = node.parent;
+        }
+        return false;
+    }
+
     private *visitNode(node: ts.Node, isSymbolWalk: boolean): IterableIterator<TypeWriterResult> {
         const gen = forEachASTNode(node);
         let res = gen.next();
         for (; !res.done; res = gen.next()) {
             const {value: node} = res;
             if (ts.isExpressionNode(node) || node.kind === ts.SyntaxKind.Identifier || ts.isDeclarationName(node)) {
+                // if (node.kind === ts.SyntaxKind.Identifier && (node.parent.kind === ts.SyntaxKind.ClassDeclaration || node.parent.kind === ts.SyntaxKind.PropertyDeclaration)) {
+                //     continue;
+                // }
+                // if (!ts.isBlockScopedContainerTopLevel(node)) {
+                //     continue;
+                // }
+                if (!(this.isInBlock(node, isSymbolWalk) || this.isExpressionSourceFile(node))) {
+                    continue;
+                }
                 const result = this.writeTypeOrSymbol(node, isSymbolWalk);
                 if (result) {
                     yield result;
